@@ -7,7 +7,7 @@ type RawRow* = seq[RawNimNode]
 
 proc addRawRow*(id: SchemaId, row: RawRow) =
   if isFrozen(id):
-    raise newException(CuleFrozenError, "schema " & $id & " is frozen, no rows can be added")
+    raise newException(FrozenError, "schema " & $id & " is frozen, no rows can be added")
   getSchemaData(id).add glaze(row)
 
 macro defineRowAdd*(id: static SchemaId, name: untyped) =
@@ -20,16 +20,37 @@ macro defineRowAdd*(id: static SchemaId, name: untyped) =
   var params: seq[NimNode] = @[newEmptyNode()]
   var row = newNimNode(nnkBracket, name)
   for field in schema.fields:
-    let typeNode = field.type.NimNode
+    var typeNode = field.type.constraint.NimNode
+    case field.type.kind
+    of ExprAtom:
+      if typeNode.isNil:
+        typeNode = bindSym"untyped"
+    of TypeAtom:
+      if typeNode.isNil:
+        typeNode = bindSym"typedesc"
+      else:
+        typeNode = newTree(nnkBracketExpr, bindSym"typedesc", typeNode)
+    of StaticAtom:
+      if typeNode.isNil:
+        typeNode = bindSym"static"
+      else:
+        typeNode = newTree(nnkBracketExpr, bindSym"static", typeNode)
     let defaultNode = field.default.NimNode
     var def = newNimNode(nnkIdentDefs, typeNode)
     def.add ident(field.name)
-    if typeNode.isNil: def.add newEmptyNode()
-    else: def.add typeNode
+    def.add typeNode
     if defaultNode.isNil: def.add newEmptyNode()
     else: def.add defaultNode
     params.add def
-    row.add newCall(bindSym"RawNimNode", ident(field.name)) # XXX needs to be different for typedescs and statics
+    var serializeNode = ident(field.name)
+    case field.type.kind
+    of ExprAtom: discard
+    of TypeAtom:
+      # maybe implement glaze for typedesc
+      serializeNode = newCall(bindSym"getTypeInst", serializeNode)
+    of StaticAtom:
+      serializeNode = newCall(bindSym("glaze", brForceOpen), serializeNode)
+    row.add newCall(bindSym"RawNimNode", serializeNode)
   result = newProc(
     procType = nnkMacroDef,
     name = name,

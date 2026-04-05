@@ -7,4 +7,4 @@ when not declared(buildDocs):
   {.error: "docs task not implemented, need nimbleutils".}
 
 # run from project root
-buildDocs(gitUrl = "https://github.com/holo-nim/cule")
+buildDocs(gitUrl = "https://github.com/holo-nim/keten")
