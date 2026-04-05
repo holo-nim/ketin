@@ -10,15 +10,15 @@ proc addRawRow*(id: SchemaId, row: RawRow) =
     raise newException(FrozenError, "schema " & $id & " is frozen, no rows can be added")
   getSchemaData(id).add glaze(row)
 
-macro defineRowAdd*(id: static SchemaId, name: untyped) =
-  var name = name
-  let isExported = name.kind in {nnkPrefix, nnkPostfix}
-  if isExported: name = name[1]
-  expectKind name, {nnkIdent, nnkAccQuoted, nnkSym, nnkOpenSymChoice, nnkClosedSymChoice}
-  name = ident repr name
+proc defineRowAdd*(id: SchemaId, rawName: NimNode, initialParams: seq[NimNode] = @[newEmptyNode()]): NimNode =
+  var rawName = rawName
+  let isExported = rawName.kind in {nnkPrefix, nnkPostfix}
+  if isExported: rawName = rawName[1]
+  expectKind rawName, {nnkIdent, nnkAccQuoted, nnkSym, nnkOpenSymChoice, nnkClosedSymChoice}
+  #name = ident repr name
   let schema = getSchema(id)
-  var params: seq[NimNode] = @[newEmptyNode()]
-  var row = newNimNode(nnkBracket, name)
+  var params: seq[NimNode] = initialParams
+  var row = newNimNode(nnkBracket, rawName)
   for field in schema.fields:
     var typeNode = field.type.constraint.NimNode
     case field.type.kind
@@ -47,17 +47,20 @@ macro defineRowAdd*(id: static SchemaId, name: untyped) =
     of ExprAtom: discard
     of TypeAtom:
       # maybe implement glaze for typedesc
+      # might need wrapping in `type()`
       serializeNode = newCall(bindSym"getTypeInst", serializeNode)
     of StaticAtom:
       serializeNode = newCall(bindSym("glaze", brForceOpen), serializeNode)
     row.add newCall(bindSym"RawNimNode", serializeNode)
   result = newProc(
     procType = nnkMacroDef,
-    name = name,
+    name = rawName,
     params = params,
     body = newCall(bindSym"addRawRow", glaze id, newCall(bindSym"@", row)))
 
 iterator eachRawRow*(id: SchemaId): RawRow =
+  if readRequiresFreeze(id) and not isFrozen(id):
+    raise newException(NotFrozenError, "schema " & $id & " requires being frozen to read but is not frozen")
   for rowNode in getSchemaData(id):
     yield deglaze(rowNode, RawRow)
 

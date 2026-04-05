@@ -11,7 +11,7 @@ srcDir        = "src"
 
 requires "nim >= 1.6.0"
 requires "https://github.com/holo-nim/glaze"
-#requires "https://github.com/holo-nim/cosm"
+requires "https://github.com/holo-nim/cosm" # already required by glaze but also used for caseutils
 
 task docs, "build docs for all modules":
   exec "nim r tasks/build_docs.nim"

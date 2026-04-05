@@ -1,23 +1,24 @@
-import glaze, std/macrocache
+import glaze, std/[macrocache, macros]
 
 type
-  AtomKind* = enum
+  KetenAtomKind* = enum
     ExprAtom
     TypeAtom
     StaticAtom
-  AtomType* = object
-    case kind*: AtomKind
+  KetenAtomType* = object
+    case kind*: KetenAtomKind
     of ExprAtom, TypeAtom, StaticAtom:
       constraint*: RawNimNode
   KetenField* = object
     # or "strand"
     column*: int
     name*: string
-    `type`*: AtomType # can be untyped, typed, static, typedesc, or other typed node
+    `type`*: KetenAtomType # can be untyped, typed, static, typedesc, or other typed node
     default*: RawNimNode
   KetenSchema* = object
     # or "fabric"
     fields*: seq[KetenField]
+    readRequiresFreeze*: bool
 
 proc getColumn*(schema: KetenSchema, name: string): int =
   result = -1
@@ -41,7 +42,18 @@ proc addSchema*(id: SchemaId, schema: KetenSchema) =
 proc getSchema*(id: SchemaId): KetenSchema =
   toSchema(schemas[id])
 
-type FrozenError* = object of CatchableError
+proc readRequiresFreeze*(id: SchemaId): bool =
+  result = false
+  let node = schemas[id]
+  for i in 1 ..< node.len:
+    assert node[i].kind == nnkExprColonExpr
+    if node[i][0].eqIdent"readRequiresFreeze":
+      result = deglaze(node[i][1], bool)
+      return result
+
+type
+  FrozenError* = object of CatchableError
+  NotFrozenError* = object of CatchableError
 
 const freezes* = CacheTable"keten.freezes"
 
