@@ -154,16 +154,43 @@ macro unravelImpl(id: static SchemaId, toApply: untyped): untyped =
 template unravel*[T: SomeFabric](_: typedesc[T], toApply: untyped): untyped =
   unravelImpl(getFabricSchemaId(T), toApply)
 
+proc unwrapElses(elses: NimNode): NimNode =
+  ## expects nnkArgList
+  if elses.len > 0:
+    case elses[0].kind
+    of nnkElifBranch, nnkElifExpr:
+      var ifStmt = newNimNode(nnkIfStmt, elses[0])
+      for i in 0 ..< elses.len:
+        case elses[i].kind
+        of nnkElifBranch, nnkElifExpr:
+          ifStmt.add elses[i]
+        of nnkElse, nnkElseExpr, nnkStmtList, nnkStmtListExpr:
+          ifStmt.add elses[i]
+          if i + 1 < elses.len:
+            error("unexpected extra else branch", elses[i + 1])
+          break
+        else:
+          error("expected else branch", elses[i])
+      result = ifStmt
+    of nnkElse, nnkElseExpr:
+      result = elses[0][0]
+      if elses.len > 1:
+        error("unexpected extra else branch", elses[1])
+    of nnkStmtList, nnkStmtListExpr:
+      result = elses[0]
+      if elses.len > 1:
+        error("unexpected extra else branch", elses[1])
+    else:
+      error("expected else branch", elses[0])
+  else:
+    result = nil
+
 macro dispatch*(column: static FabricColumn, value: typed, toApply: untyped, elses: varargs[untyped]): untyped =
   var callPattern = toApply
   result = newStmtList()
   if toApply.kind in {nnkLambda, nnkDo}:
     callPattern = promoteLambda(toApply, "dispatch", result)
-  var realElse: NimNode = nil
-  if elses.len > 0:
-    if elses.len != 1: error "only 1 else supported", elses
-    if elses[0].kind != nnkElse: error "expected else", elses[0]
-    realElse = elses[0][0]
+  let realElse = unwrapElses(elses)
   result.add doDispatch(column.schemaId, column.num, value, callPattern, realElse)
 
 macro find*(column: static FabricColumn, value: typed, toApply: untyped, elses: varargs[untyped]): untyped =
@@ -171,11 +198,7 @@ macro find*(column: static FabricColumn, value: typed, toApply: untyped, elses: 
   result = newStmtList()
   if toApply.kind in {nnkLambda, nnkDo}:
     callPattern = promoteLambda(toApply, "find", result, used = true) # gives false unused warning for some reason
-  var realElse: NimNode = nil
-  if elses.len > 0:
-    if elses.len != 1: error "only 1 else supported", elses
-    if elses[0].kind != nnkElse: error "expected else", elses[0]
-    realElse = elses[0][0]
+  let realElse = unwrapElses(elses)
   let implName = genSym(nskMacro, "findImpl")
   var implParams = @[ident"untyped",
     newIdentDefs(ident"toApplyImpl", ident"untyped")]
@@ -197,3 +220,8 @@ macro find*(column: static FabricColumn, value: typed, toApply: untyped, elses: 
   var implCall = newCall(implName, callPattern)
   if not realElse.isNil: implCall.add realElse
   result.add implCall
+
+# XXX implement:
+# * dispatch `case` in object type
+# * pragma to easily stitch types i.e. `type Foo {.stitch: (a, b).} = object ...` calls `stitch(a, b, Foo)`
+#   maybe define per scheme or allow user to define it easily to also support optional arguments
