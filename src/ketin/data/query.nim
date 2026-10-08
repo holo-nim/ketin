@@ -26,15 +26,15 @@ proc defineRowAdd*(id: SchemaId, rawName: NimNode, initialParams: seq[NimNode] =
     var typeNode = field.type.constraint.NimNode
     case field.type.kind
     of ExprAtom:
-      if typeNode.isNil:
+      if typeNode.isNil or typeNode.kind == nnkNilLit:
         typeNode = bindSym"untyped"
     of TypeAtom:
-      if typeNode.isNil:
+      if typeNode.isNil or typeNode.kind == nnkNilLit:
         typeNode = bindSym"typedesc"
       else:
         typeNode = newTree(nnkBracketExpr, bindSym"typedesc", typeNode)
     of StaticAtom:
-      if typeNode.isNil:
+      if typeNode.isNil or typeNode.kind == nnkNilLit:
         typeNode = bindSym"static"
       else:
         typeNode = newTree(nnkBracketExpr, bindSym"static", typeNode)
